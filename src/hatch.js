@@ -6,13 +6,23 @@ const _getStrokeAttributesForDrawStyle = ({strokeColor, strokeWidth}) =>
 const _fixHatchAngleAsNeeded = (angle) => (angle % 90 === 0) ? angle + .1 : angle;
 
 const _calcHatchDrawingValues = ({hatchAngle, hatchDensity, height, strokeWidth, width}) => {
-  const hatchSpacing = 10; //TODO
   hatchAngle = _fixHatchAngleAsNeeded(hatchAngle);
 
   const tri = solveTriangle2Angles1Side({A: hatchAngle, B: 90, c: height});
   const bottomOffset = tri.a;
   const startTopX = (bottomOffset > 0) ? -bottomOffset : 0;
   const endTopX = width + ((bottomOffset < 0) ? -bottomOffset : 0);
+
+  const hatchSpacing = 10; //TODO
+
+  // 100% density is a "blackout" where strokes are drawn immediately adjacent to their neighbors and leave
+  // no space showing between.
+
+  // 50% density means the area covered by strokes is equal to area showing through (not covered by strokes).
+
+  // 0% density is a limit which can be interpreted as drawing no strokes at all.
+
+  
 
   return {hatchSpacing, bottomOffset, startTopX, endTopX};
 };
