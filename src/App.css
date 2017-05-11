@@ -1,10 +1,16 @@
-.hatch-example1 {
-
+.hatch-example {
+  width: 30%;
+  height: 60px;
+  margin: 5px;
+  padding: 5px;
+  text-align: center;
 }
 
-.hatcher-svg {
-  float: left;
-  position: relative;
-  left: 0;
-  top: 0;
+.density-example-container {
+  display: flex;
+}
+
+.density-example {
+  flex: 1;
+  height: 100%;
 }

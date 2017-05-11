@@ -10,6 +10,7 @@
   "private": true,
   "dependencies": {
     "classnames": "^2.2.5",
+    "polyk": "^0.24.0",
     "prop-types": "^15.5.8",
     "react": "^15.5.4",
     "react-dom": "^15.5.4"

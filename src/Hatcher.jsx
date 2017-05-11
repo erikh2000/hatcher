@@ -11,7 +11,10 @@ const _getWidthHeight = ({width, height}, {calcedWidth, calcedHeight}) => {
 }
 
 const _getSvgStyle = (svg) => {
-  return { backgroundImage: `url("data:image/svg+xml;utf8,${svg}")` };
+  return {
+    backgroundRepeat: 'no-repeat',
+    backgroundImage: `url("data:image/svg+xml;utf8,${svg}")`
+  };
 }
 
 /* Returns boject containing all drawing-style-related props with
@@ -20,7 +23,8 @@ const _getDrawStyle = (props) => {
   return  {
     drawBorder:     props.drawBorder !== undefined ? props.drawBorder : true,
     hatchAngle:     props.hatchAngle !== undefined ? props.hatchAngle : 45,
-    hatchDensity:   props.hatchDensity || .1,
+    density:        props.density || .1,
+    densityZones:   props.densityZones,
     strokeColor:    props.strokeColor || 'black',
     strokeWidth:    props.strokeWidth || 1,
     opacity:        props.opacity !== undefined ? props.opacity : .25
@@ -54,10 +58,12 @@ class Hatcher extends Component {
   }
 
   componentDidMount() {
-    if (this.state.calcedWidth === null && this.state.calcedHeight === null) {
-      this._updateCalcedWidthHeight();
+    if (!this.props.width || !this.props.height) {
+      if (this.state.calcedWidth === null && this.state.calcedHeight === null) {
+        this._updateCalcedWidthHeight();
+      }
+      window.addEventListener('resize', this._updateCalcedWidthHeight);
     }
-    window.addEventListener('resize', this._updateCalcedWidthHeight);
   }
 
   componentWillUnmount() {
@@ -66,8 +72,8 @@ class Hatcher extends Component {
 
   _updateCalcedWidthHeight() {
     if (this.hatchDiv) {
-      const calcedWidth = this.hatchDiv.clientWidth;
-      const calcedHeight = this.hatchDiv.clientHeight;
+      const calcedWidth = this.hatchDiv.offsetWidth;
+      const calcedHeight = this.hatchDiv.offsetHeight;
       if (!calcedWidth || !calcedHeight) { console.warn('Hatcher element has no area to render. Set width/height props, use styling, or render child elements to give it dimensions.'); }
       this.setState({calcedWidth, calcedHeight});
     }
@@ -80,7 +86,13 @@ Hatcher.propTypes = {
 
   // Drawstyle props
   hatchAngle: PropTypes.number,
-  hatchDensity: PropTypes.number,
+  density: PropTypes.number,
+  densityZones: PropTypes.arrayOf(
+    PropTypes.shape({
+      density: PropTypes.number.isRequired,
+      polygon: PropTypes.arrayOf(PropTypes.number.isRequired)  //alternating X and Y coords, defining clockwise points of a polygon.
+    }).isRequired
+  ),
   strokeColor: PropTypes.string,
   strokeWidth: PropTypes.number,
   drawBorder: PropTypes.bool,
