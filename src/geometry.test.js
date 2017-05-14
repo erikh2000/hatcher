@@ -118,6 +118,7 @@ describe('fixWrappedAngles', () => {
 
   it('solves for angles that are in smallest-first order and are closest with wrapping.', () => {
     expect(fixWrappedAngles(10,350)).toEqual({a1w:350, a2w:370});
+    expect(fixWrappedAngles(9,208)).toEqual({a1w:208, a2w:369});
   });
 
   it('solves for angles that are in largest-first order and are closest with wrapping.', () => {

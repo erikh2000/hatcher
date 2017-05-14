@@ -40,7 +40,7 @@ export const calcAngleBetweenPoints = ({x1, y1, x2, y2}) => {
 /** Add or subtract 360 degrees to angles so they can be returned with smallest angle first, and no wrapping from 359
     to 0. */
 export const fixWrappedAngles = (a1, a2) => {
-  let a1w = a1 % 360, a2w = a2 % 360; //Normalize the angles.
+  let a1w = normalizeAngle(a1), a2w = normalizeAngle(a2);
 
   //Swap if needed to make first angle the smaller.
   if (a1w > a2w) { [a1w, a2w] = [a2w, a1w]; }
@@ -49,6 +49,27 @@ export const fixWrappedAngles = (a1, a2) => {
   if ((a2w - a1w) > 180) { // Yes.
     [a1w, a2w] = [a2w, a1w];
     a2w += 360;
+  }
+
+  return {a1w, a2w};
+};
+
+/** Add or subtract 360 degrees to angles so they can be returned in same order, but without needed
+    of wrapping from 359 to 0 to find closest angle. */
+export const fixWrappedAnglesNoSwap = (a1, a2) => {
+  let a1w = normalizeAngle(a1), a2w = normalizeAngle(a2);
+
+  //Are angles already in smallest-first order?
+  if (a1w < a2w) { //Yes.
+    //Are the angles closer together if comparing across the 0 degree wrap point?
+    if ((a2w - a1w) > 180) { // Yes--fix the wrap.
+      a1w += 360;
+    }
+  } else { //In largest-first order.
+    //Are the angles closer together if comparing across the 0 degree wrap point?
+    if ((a1w - a2w) > 180) { // Yes--fix the wrap.
+      a2w += 360;
+    }
   }
 
   return {a1w, a2w};
@@ -65,4 +86,9 @@ export const calcAverageAngle = (a1, a2) => {
   const {a1w, a2w} = fixWrappedAngles(a1, a2);
   const average = (a1w + a2w) / 2;
   return normalizeAngle(average);
+};
+
+export const calcAngleDifference = (a1, a2) => {
+  const {a1w, a2w} = fixWrappedAngles(a1, a2);
+  return a2w - a1w;
 };

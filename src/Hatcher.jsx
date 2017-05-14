@@ -26,7 +26,7 @@ const _getDrawStyle = (props) => {
     density:        props.density || .1,
     densityZones:   props.densityZones,
     strokeColor:    props.strokeColor || 'black',
-    strokeWidth:    props.strokeWidth || 1,
+    strokeWidth:    props.strokeWidth || 3,
     opacity:        props.opacity !== undefined ? props.opacity : .25
   };
 };
