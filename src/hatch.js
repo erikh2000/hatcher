@@ -131,84 +131,67 @@ const _calcFrontierPointsFromLine = ({line, density, densityZones}) => {
     const a2 = (i + 2 < line.length) ? calcAngleBetweenPoints({x1:point.x, y1:point.y, x2:line[i+2], y2:line[i+3]}) : null;
     point.density = getDensityAtPoint({x:point.x, y:point.y, defaultDensity:density, densityZones});
     point.angle = normalizeAngle(calcAverageAngle(a1,a2) + 90);
+    point.nextX = point.x +
     ret.push(point);
   }
   return ret;
-}
+};
+
+const _getLineSpacingAverageFromPointNeighbors = ({strokeWidth, frontierPoints, pointI}) => {
+  const prevLineSpacing = (pointI > 0) ? strokeWidth / frontierPoints[pointI-1].density : null;
+  const nextLineSpacing = (pointI < frontierPoints.length - 1) ? strokeWidth / frontierPoints[pointI+1].density : null;
+  if (prevLineSpacing === null) { return nextLineSpacing === null ? 0 : nextLineSpacing; }
+  if (nextLineSpacing === null) { return prevLineSpacing; }
+  return (prevLineSpacing + nextLineSpacing) / 2;
+};
+
+const _updateFrontierPointsWithNextXY = ({frontierPoints, strokeWidth}) => {
+  for (let pointI = 0; pointI < frontierPoints.length; ++pointI) {
+    const point = frontierPoints[pointI];
+    let lineSpacing;
+    if (point.density === 0) { // Line won't be drawn at this point, but frontier point should advance based on spacing of neighbors.
+      lineSpacing = _getLineSpacingAverageFromPointNeighbors({strokeWidth, frontierPoints, pointI});
+      point.willOmitNext = true;
+    } else {
+      lineSpacing = strokeWidth / point.density;
+      point.willOmitNext = false;
+    }
+    const a = degreesToRadians(point.angle);
+    point.nextX = point.x + (Math.cos(a) * lineSpacing);
+    point.nextY = point.y + (Math.sin(a) * lineSpacing);
+  }
+};
+
+const _calcNextFrontierPoints = ({frontierPoints, density, densityZones}) =>{
+  const nextFrontierPoints = [];
+
+  for(let i=0; i<frontierPoints.length; ++i) {
+    const fromPoint = frontierPoints[i];
+    if (fromPoint.willDeleteNext) { continue; }
+
+    const a1 = (i > 0) ? calcAngleBetweenPoints(
+      {x1:frontierPoints[i-1].nextX, y1:frontierPoints[i-1].nextY, x2:fromPoint.nextX, y2:fromPoint.nextY}) : null;
+    const a2 = (i + 1 < frontierPoints.length) ? calcAngleBetweenPoints(
+      {x1:fromPoint.nextX, y1:fromPoint.nextY, x2:frontierPoints[i+1].nextX, y2:frontierPoints[i+1].nextY}) : null;
+    const newPoint = {
+      x:fromPoint.nextX,
+      y:fromPoint.nextY,
+      angle: normalizeAngle(calcAverageAngle(a1,a2) + 90),
+      density: getDensityAtPoint({x:fromPoint.nextX, y:fromPoint.nextY, defaultDensity:density, densityZones}),
+    };
+    nextFrontierPoints.push(newPoint);
+  }
+  return nextFrontierPoints;
+};
+
+const _calcNextFrontierPointsFromLine = ({line, density, densityZones, strokeWidth}) => {
+  const frontierPoints = _calcFrontierPointsFromLine({line, density, densityZones});
+  _updateFrontierPointsWithNextXY({frontierPoints, strokeWidth});
+  return _calcNextFrontierPoints({frontierPoints, density, densityZones});
+};
 
 const _flipFrontierPoints = (frontierPoints) => {
   return frontierPoints.map( (point) => { return { x: point.x, y: point.y, angle: normalizeAngle(point.angle + 180) } } );
-}
-
-const _frontierNormalsSvg = ({strokeAttributes = DEBUG_STROKE_ATTRIBUTES, normalLength = 5, frontierPoints}) => {
-  let svg = '';
-  frontierPoints.forEach( (point, i) => {
-    console.log('a=' + point.angle);
-    const a = degreesToRadians(point.angle);
-    const toX = point.x + (Math.cos(a)*normalLength);
-    const toY = point.y + (Math.sin(a)*normalLength);
-    if (_isFrontierPointConvex(frontierPoints, i)) {
-      //svg += _circleSvg({ strokeAttributes, cx:point.x, cy:point.x, r:1});
-      svg += _circleSvg({ strokeAttributes, cx:toX, cy:toY, r:1});
-    } else {
-      svg += _polylineSvg({ strokeAttributes, line:[point.x, point.y, toX, toY] });
-    }
-  });
-  return svg;
-}
-
-const _linePointsSvg = ({strokeAttributes = DEBUG_STROKE_ATTRIBUTES, lines}) => {
-  let svg='';
-  lines.forEach((line) => {
-    for (let i = 0; i < line.length; i += 2) {
-      svg += _circleSvg({strokeAttributes, cx:line[i], cy:line[i+1], r:2});
-    }
-  });
-  return svg;
-}
-
-// Cull of add points on ends of line so that there is always one and only point that extends past the bounding rect.
-const _fixLineEndPoints = ({line, boundingRect}) => {
-  //Find first point that is not OOB.
-  let first;
-  for (first = 0; first < line.length; first += 2) {
-    if (containsPoint(boundingRect, line[first], line[first+1])) { break; }
-  }
-  if (first >= line.length) { return []; } //All points are OOB.
-
-  //Find last point that is not OOB.
-  let last;
-  for (last = line.length - 2; last > first; last -= 2) {
-    if (containsPoint(boundingRect, line[last], line[last+1])) { break; }
-  }
-
-  let extraStartPoint;
-  if (first === 0) { //Need to add a "one past" point.
-    const dx = line[first+2] - line[first], dy = line[first+3] - line[first+1];
-    if (!isNaN(dx)) {
-      const x = line[first] - dx;
-      const y = line[first+1] - dy;
-      extraStartPoint = [x,y];
-    }
-  } else { //Enlarge range to include "one past" point.
-    first -= 2;
-  }
-  let extraEndPoint;
-  if (last === line.length - 2) { //Need to add a "one past" point.
-    const dx = line[last] - line[last-2], dy = line[last+1] - line[last-1];
-    if (!isNaN(dx)) {
-      let x = line[last] + dx;
-      let y = line[last+1] - dy;
-      extraEndPoint = [x,y];
-    }
-  } else { //Enlarge range to include "one past" point.
-    last += 2;
-  }
-
-  let ret = line.slice(first, last+2);
-  if (extraStartPoint) { ret = extraStartPoint.concat(line); }
-  if (extraEndPoint) { ret = line.concat(extraEndPoint); }
-  return ret;
 };
 
 const _isFrontierPointConvex = (frontierPoints, pointI) => {
@@ -231,7 +214,103 @@ const _isFrontierPointConvex = (frontierPoints, pointI) => {
   return (somethingFlipped) ? angleDifference > 0 : angleDifference < 0;
 };
 
-const _isLineAngleTooSharp = (frontierPoints, pointI) => {
+const _frontierNormalsSvg = ({strokeAttributes = DEBUG_STROKE_ATTRIBUTES, normalLength = 5, frontierPoints}) => {
+  let svg = '';
+  frontierPoints.forEach( (point, i) => {
+    const a = degreesToRadians(point.angle);
+    const toX = point.x + (Math.cos(a)*normalLength);
+    const toY = point.y + (Math.sin(a)*normalLength);
+    if (_isFrontierPointConvex(frontierPoints, i)) {
+      svg += _circleSvg({ strokeAttributes, cx:toX, cy:toY, r:1});
+    } else {
+      svg += _polylineSvg({ strokeAttributes, line:[point.x, point.y, toX, toY] });
+    }
+  });
+  return svg;
+};
+
+const _frontierNextSvg = ({strokeAttributes = DEBUG_STROKE_ATTRIBUTES, frontierPoints}) => {
+  let svg = '';
+  frontierPoints.forEach( point => {
+    if (point.willOmitNext) {
+      svg += _circleSvg({ strokeAttributes, cx:point.nextX, cy:point.nextY, r:1});
+    } else {
+      svg += _polylineSvg({ strokeAttributes, line:[point.x, point.y, point.nextX, point.nextY] });
+    }
+  });
+  return svg;
+};
+
+const _linePointsSvg = ({strokeAttributes = DEBUG_STROKE_ATTRIBUTES, lines}) => {
+  let svg='';
+  lines.forEach((line) => {
+    for (let i = 0; i < line.length; i += 2) {
+      svg += _circleSvg({strokeAttributes, cx:line[i], cy:line[i+1], r:2});
+    }
+  });
+  return svg;
+}
+
+const _getDxDyForFrontierNextSegment = ({frontierPoints, point1i, point2i}) => {
+  const point1 = frontierPoints[point1i], point2 = frontierPoints[point2i];
+  return (point1 && point2) ?
+    { dx: point2.nextX - point1.nextX, dy: point2.nextY - point1.nextY } :
+    { dx: undefined, dy: undefined };
+};
+
+/* Add or subtract points on ends of line so that there is always one and only point that extends past the
+   bounding rect.
+
+   @return True if frontier can generate more in-bound points on future calls, false if not. (Frontier entirely out of bounds)
+*/
+const _updateFrontierNextPointsToFitBoundingRect = ({frontierPoints, boundingRect}) => {
+  //Find first point that is not OOB.
+  let first;
+  for (first = 0; first < frontierPoints.length; ++first) {
+    if (containsPoint(boundingRect, frontierPoints[first].nextX, frontierPoints[first].nextY)) { break; }
+  }
+  if (first === frontierPoints.length) { return false; } //All points are OOB.
+
+  //Find last point that is not OOB.
+  let last;
+  for (last = frontierPoints.length - 1; last > first; --last) {
+    if (containsPoint(boundingRect, frontierPoints[last].nextX, frontierPoints[last].nextY)) { break; }
+  }
+
+  if (last === frontierPoints.length - 1) { //Add point to end to have a "one past" point.
+    const fromPoint = frontierPoints[last];
+    const {dx, dy} = _getDxDyForFrontierNextSegment({frontierPoints, point1i: last+2, point2i: last+1});
+    if (!isNaN(dx)) {
+      const extraEndPoint = { density:fromPoint, angle:null, x:null, y:null };
+      extraEndPoint.nextX = fromPoint.nextX + dx;
+      extraEndPoint.nextY = fromPoint.nextY + dy;
+      frontierPoints.push(extraEndPoint);
+    }
+  } else { //Enlarge range to include "one past" point.
+    ++last;
+  }
+
+  if (first === 0) { //Add point to start to have a "one past" point.
+    const fromPoint = frontierPoints[first];
+    const {dx, dy} = _getDxDyForFrontierNextSegment({frontierPoints, point1i: first+1, point2i: first+2});
+    if (!isNaN(dx)) {
+      const extraStartPoint = { density:fromPoint, angle:null, x:null, y:null };
+      extraStartPoint.nextX = fromPoint.nextX + dx;
+      extraStartPoint.nextY = fromPoint.nextY + dy;
+      frontierPoints.unshift(extraStartPoint);
+    }
+  } else { //Enlarge range to include "one past" point.
+    --first;
+  }
+
+  //Mark points for deletion in next frontier.
+  for (let i = 0; i < first; ++i) { frontierPoints[i].willDeleteNext = true; }
+  for (let i = last + 1; i < frontierPoints.length; ++i) { frontierPoints[i].willDeleteNext = true; }
+
+  return true;
+};
+
+const _isNextAngleTooSharp = (frontierPoints, pointI) => {
   //Get adjacent points.
   const prevPoint = (pointI === 0) ? null : frontierPoints[pointI-1];
   const nextPoint = (pointI === frontierPoints - 1) ? null : frontierPoints[pointI+1];
@@ -240,67 +319,89 @@ const _isLineAngleTooSharp = (frontierPoints, pointI) => {
   if (!prevPoint || !nextPoint) { return false; }
 
   const point = frontierPoints[pointI];
-  const prevToPointAngle = calcAngleBetweenPoints({x1:prevPoint.x, y1:prevPoint.y, x2:point.x, y2:point.y});
-  const pointToNextAngle = calcAngleBetweenPoints({x1:point.x, y1:point.y, x2:nextPoint.x, y2:nextPoint.y});
+  const prevToPointAngle = calcAngleBetweenPoints({x1:prevPoint.nextX, y1:prevPoint.nextY, x2:point.nextX, y2:point.nextY});
+  const pointToNextAngle = calcAngleBetweenPoints({x1:point.nextX, y1:point.nextY, x2:nextPoint.nextX, y2:nextPoint.nextY});
   const angleDifference = calcAngleDifference(prevToPointAngle, pointToNextAngle);
 
   const TOO_SHARP = 20;
   if (angleDifference > TOO_SHARP) {
-    console.log('  Point #' + pointI + ' is too sharp! ' + angleDifference);
+    console.log('  Point #' + pointI + ' of ' + frontierPoints.length + ' is too sharp! ' + angleDifference);
   }
   return (angleDifference > TOO_SHARP);
-}
-
-const _splitLineByOmittedPoints = ({line, omitPointIndexes}) => {
-  let lines = [], start, wasInLine = false;
-  for (let i=0; i < line.length; i += 2) {
-    const isInLine = (omitPointIndexes.indexOf(i/2) === -1);
-    if (isInLine) {
-      if (!wasInLine) {
-        start = i;
-      }
-    } else {
-      if (wasInLine) {
-        lines.push( line.slice(start, i) );
-      }
-    }
-    wasInLine = isInLine;
-  }
-  if (wasInLine) {
-    lines.push( line.slice(start) );
-  }
-  return lines;
 };
 
-const _calcNextHatchLine = ({frontierPoints, strokeWidth, boundingRect, density, densityZones}) => {
-  let line = [], omitPointIndexes = [];
-  for (let pointI = 0; pointI < frontierPoints.length; ++pointI) {
-    //XXX--handling for density of 0.
-    let willOmitPoint = false;
-    const point = frontierPoints[pointI];
-    if (_isLineAngleTooSharp(frontierPoints, pointI)) {
-      //If the two-sharp angle is convex in the direction of hatching, then omit this point from the
-      //current hatch line (split hatch line) so that next hatch line can be drawn straighter.
-      //If the angle is concave, omitting the point just makes the next hatch line less straight.
-      willOmitPoint = _isFrontierPointConvex(frontierPoints, pointI);
-    }
+const _omitLonePoints = (frontierPoints) => {
+  const pointCount = frontierPoints.length;
+  let newlyOmittedCount = 0;
 
-    if (willOmitPoint) {  //Omit the point (split hatch line)
-      omitPointIndexes.push(pointI);
+  for (let i = 0; i < pointCount; ++i) {
+    if (frontierPoints[i].willOmitNext) { continue; }//This point already omitted.
+
+    const prevOmitted = (i === 0) || frontierPoints[i-1].willOmitNext;
+    const nextOmitted = (i === pointCount-1) || frontierPoints[i+1].willOmitNext;
+
+    if (prevOmitted && nextOmitted) {
+      console.log('  omitted lone point #' + i + ' of ' + pointCount);
+      frontierPoints[i].willOmitNext = true;
+      ++newlyOmittedCount;
+    }
+  }
+
+  return newlyOmittedCount;
+};
+
+const _getLinesFromFrontierNext = (frontierPoints) => {
+  const lines = [];
+  let line = [], wasInLine = false;
+  frontierPoints.forEach( (point) => {
+    const isInLine = !point.willOmitNext;
+    if (isInLine) {
       line.push(point.x);
       line.push(point.y);
     } else {
-      const lineSpacing = strokeWidth / point.density;
-      const a = degreesToRadians(point.angle);
-      line.push(point.x + (Math.cos(a) * lineSpacing));
-      line.push(point.y + (Math.sin(a) * lineSpacing));
+      if (wasInLine) {
+        lines.push(line);
+        line = [];
+      }
+    }
+    wasInLine = isInLine;
+  });
+  if (line.length) { lines.push(line); }
+  return lines;
+};
+
+const _omitTooSharpPoints = (frontierPoints) => {
+  for (let pointI = 0; pointI < frontierPoints.length; ++pointI) {
+    const point = frontierPoints[pointI];
+    if (!point.willOmitNext && _isNextAngleTooSharp(frontierPoints, pointI)) {
+      //If the two-sharp angle is convex in the direction of hatching, then omit this point from the
+      //current hatch line (split hatch line) so that next hatch line can be drawn straighter.
+      //If the angle is concave, omitting the point just makes the next hatch line less straight.
+      if (_isFrontierPointConvex(frontierPoints, pointI)) {
+        point.willOmitNext = true;
+        point.nextX = point.x;
+        point.nextY = point.y;
+      }
     }
   }
-  line = _fixLineEndPoints({line, boundingRect});
-  if (line.length === 0) { return { nextFrontierPoints: null }; }
-  const nextFrontierPoints = _calcFrontierPointsFromLine({line, density, densityZones});
+};
+
+const _calcNextHatchLine = ({frontierPoints, strokeWidth, boundingRect, density, densityZones}) => {
+  //Update frontier points to include tentative next line points.
+  _updateFrontierPointsWithNextXY({frontierPoints, strokeWidth});
+
+  //Add/subtract points at ends of next line to go one past bounding rect.
+  const willContinue = _updateFrontierNextPointsToFitBoundingRect({frontierPoints, boundingRect});
+
+  //Find frontier points that create too-sharp angles.
+  while (true) {
+    _omitTooSharpPoints(frontierPoints);
+    if (_omitLonePoints(frontierPoints) === 0) { break; }
+  }
+
+  const nextFrontierPoints = willContinue ? _calcNextFrontierPoints({frontierPoints, density, densityZones}) : null;
   return {
-    lines: _splitLineByOmittedPoints({line, omitPointIndexes}),
+    lines: _getLinesFromFrontierNext(frontierPoints),
     nextFrontierPoints
   };
 };
@@ -310,16 +411,16 @@ const _hatchFromFrontierSvg = ({frontierPoints, strokeAttributes, width, height,
   const boundingRect = _getBoundingRectPoly(width, height);
   let svg = '', f = frontierPoints, lineCount = 0;
   while (true) {
+    console.log('line#' + lineCount+1);
     const { lines, nextFrontierPoints } = _calcNextHatchLine({frontierPoints:f, strokeWidth, boundingRect, density, densityZones});
-    if (!nextFrontierPoints) { return svg; }
     svg += _polylinesSvg({strokeAttributes, lines});
-    svg += _frontierNormalsSvg({frontierPoints: nextFrontierPoints});
-    if (++lineCount === maxLines) {
+    svg += _frontierNextSvg({frontierPoints: f});
+    if (++lineCount === maxLines - 1) {
       //debugger; //XXX
-    } else if (lineCount > maxLines) {
+    } else if (lineCount === maxLines) {
       return svg;
     }
-    console.log('line#' + lineCount);
+    if (!nextFrontierPoints) { return svg; }
     f = nextFrontierPoints;
   }
 };
@@ -330,16 +431,16 @@ const _hatchSvgWithDensityZones = ({width, height, drawStyle}) => {
   const strokeAttributes = _getStrokeAttributesFromDrawStyle(drawStyle);
   const seedLine = _calcSeedLine({width, height, hatchAngle, randomSeed:1});
 
-  let ret = '';
-  ret += _polylineSvg({strokeAttributes, line:seedLine});
+  let svg = '';
+  svg += _polylineSvg({strokeAttributes, line:seedLine});
 
-  const frontierPoints = _calcFrontierPointsFromLine({line:seedLine, density, densityZones});
-  ret += _hatchFromFrontierSvg({frontierPoints, strokeAttributes, width, height, strokeWidth, density, densityZones,
-    maxLines: 33});
-  ret += _hatchFromFrontierSvg({frontierPoints: _flipFrontierPoints(frontierPoints), strokeAttributes, width, height,
-    strokeWidth, density, densityZones, maxLines: 33});
+  const frontierPoints = _calcNextFrontierPointsFromLine({line:seedLine, density, densityZones, strokeWidth});
+  svg += _hatchFromFrontierSvg({frontierPoints, strokeAttributes, width, height, strokeWidth, density, densityZones,
+    maxLines: 20});
+  //ret += _hatchFromFrontierSvg({frontierPoints: _flipFrontierPoints(frontierPoints), strokeAttributes, width, height,
+    //strokeWidth, density, densityZones, maxLines: 1});
 
-  return ret;
+  return svg;
 };
 
 const _borderSvg = ({width, height, drawStyle}) => {
@@ -349,20 +450,20 @@ const _borderSvg = ({width, height, drawStyle}) => {
 };
 
 export const createHatchSvg = ({width, height, drawStyle}) => {
-  let ret = `<svg className='hatcher-svg' xmlns='http://www.w3.org/2000/svg' ` +
+  let svg = `<svg className='hatcher-svg' xmlns='http://www.w3.org/2000/svg' ` +
     `opacity='${drawStyle.opacity}' width='${width}' height='${height}'>`;
 
   if (drawStyle.densityZones) {
-    ret += _hatchSvgWithDensityZones({width, height, drawStyle});
+    svg += _hatchSvgWithDensityZones({width, height, drawStyle});
   } else {
-    ret += _hatchSvg({width, height, drawStyle});
+    svg += _hatchSvg({width, height, drawStyle});
   }
 
   if (drawStyle.drawBorder) {
-    ret += _borderSvg({width, height, drawStyle});
+    svg += _borderSvg({width, height, drawStyle});
   }
 
-  ret += `</svg>`;
+  svg += `</svg>`;
 
-  return ret;
+  return svg;
 };
