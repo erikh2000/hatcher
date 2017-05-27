@@ -84,7 +84,7 @@ const _getBoundingRectPoly = (width, height) => {
   return [0,0, width,0, width,height, 0,height];
 }
 
-const _calcSeedLine = ({width, height, hatchAngle, segmentLength = 20, roughness = 1, randomSeed}) => {
+const _calcSeedLine = ({width, height, hatchAngle, segmentLength = 20, roughness = 0, randomSeed}) => {
   if (roughness > 1) { roughness = 1; }
   else if (roughness < 0) { roughness = 0; }
 
@@ -277,31 +277,33 @@ const _updateFrontierNextPointsToFitBoundingRect = ({frontierPoints, boundingRec
     if (containsPoint(boundingRect, frontierPoints[last].nextX, frontierPoints[last].nextY)) { break; }
   }
 
-  if (last === frontierPoints.length - 1) { //Add point to end to have a "one past" point.
+  //If last in-bound point is at end of line, add point to end to have a "one past" point.
+  if (last === frontierPoints.length - 1) {
     const fromPoint = frontierPoints[last];
-    const {dx, dy} = _getDxDyForFrontierNextSegment({frontierPoints, point1i: last+2, point2i: last+1});
+    const {dx, dy} = _getDxDyForFrontierNextSegment({frontierPoints, point1i: last-1, point2i: last});  //TODO--need different calc that will reliably extend OOB
     if (!isNaN(dx)) {
       const extraEndPoint = { density:fromPoint, angle:null, x:null, y:null };
       extraEndPoint.nextX = fromPoint.nextX + dx;
       extraEndPoint.nextY = fromPoint.nextY + dy;
       frontierPoints.push(extraEndPoint);
     }
-  } else { //Enlarge range to include "one past" point.
-    ++last;
   }
 
-  if (first === 0) { //Add point to start to have a "one past" point.
+  //If first in-bound point is at start of line, add point to start to have a "one past" point.
+  if (first === 0) {
     const fromPoint = frontierPoints[first];
-    const {dx, dy} = _getDxDyForFrontierNextSegment({frontierPoints, point1i: first+1, point2i: first+2});
+    const {dx, dy} = _getDxDyForFrontierNextSegment({frontierPoints, point1i: first+1, point2i: first}); //TODO--need different calc that will reliably extend OOB
     if (!isNaN(dx)) {
       const extraStartPoint = { density:fromPoint, angle:null, x:null, y:null };
       extraStartPoint.nextX = fromPoint.nextX + dx;
       extraStartPoint.nextY = fromPoint.nextY + dy;
       frontierPoints.unshift(extraStartPoint);
     }
-  } else { //Enlarge range to include "one past" point.
-    --first;
   }
+
+  //Enlarge range to include "one past" points.
+  ++last;
+  --first;
 
   //Mark points for deletion in next frontier.
   for (let i = 0; i < first; ++i) { frontierPoints[i].willDeleteNext = true; }
@@ -350,14 +352,14 @@ const _omitLonePoints = (frontierPoints) => {
   return newlyOmittedCount;
 };
 
-const _getLinesFromFrontierNext = (frontierPoints) => {
+const _getLinesFromFrontierNext = (frontierPoints) => { // XXX what is this function doing?
   const lines = [];
   let line = [], wasInLine = false;
   frontierPoints.forEach( (point) => {
     const isInLine = !point.willOmitNext;
     if (isInLine) {
-      line.push(point.x);
-      line.push(point.y);
+      line.push(point.nextX); // point.x WAS
+      line.push(point.nextY); // point.y  WAS
     } else {
       if (wasInLine) {
         lines.push(line);
@@ -411,16 +413,17 @@ const _hatchFromFrontierSvg = ({frontierPoints, strokeAttributes, width, height,
   const boundingRect = _getBoundingRectPoly(width, height);
   let svg = '', f = frontierPoints, lineCount = 0;
   while (true) {
-    console.log('line#' + lineCount+1);
+    ++lineCount;
+    console.log('line#' + lineCount);
+    if (lineCount === maxLines - 1) {
+      //debugger;
+    }
     const { lines, nextFrontierPoints } = _calcNextHatchLine({frontierPoints:f, strokeWidth, boundingRect, density, densityZones});
     svg += _polylinesSvg({strokeAttributes, lines});
     svg += _frontierNextSvg({frontierPoints: f});
-    if (++lineCount === maxLines - 1) {
-      //debugger; //XXX
-    } else if (lineCount === maxLines) {
-      return svg;
-    }
-    if (!nextFrontierPoints) { return svg; }
+
+    if (lineCount === maxLines || !nextFrontierPoints) { return svg; }
+
     f = nextFrontierPoints;
   }
 };
