@@ -25,7 +25,7 @@ const _getDrawStyle = (props) => {
     hatchAngle:     props.hatchAngle !== undefined ? props.hatchAngle : 45,
     density:        props.density || .1,
     densityZones:   props.densityZones,
-    strokeColor:    props.strokeColor || 'black',
+    stroke:         props.stroke || 'black',
     strokeWidth:    props.strokeWidth || 3,
     opacity:        props.opacity !== undefined ? props.opacity : .25
   };
@@ -93,7 +93,7 @@ Hatcher.propTypes = {
       polygon: PropTypes.arrayOf(PropTypes.number.isRequired)  //alternating X and Y coords, defining clockwise points of a polygon.
     }).isRequired
   ),
-  strokeColor: PropTypes.string,
+  stroke: PropTypes.string,
   strokeWidth: PropTypes.number,
   drawBorder: PropTypes.bool,
   opacity: PropTypes.number

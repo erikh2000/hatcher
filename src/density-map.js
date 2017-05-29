@@ -1,6 +1,15 @@
 import { ContainsPoint as containsPoint } from 'polyk';
 
-export const getDensityAtPoint = ({x, y, defaultDensity, densityZones}) => {
-  const containingZone = densityZones && densityZones.find( (zone) => containsPoint(zone.polygon, x, y) );
-  return containingZone ? containingZone.density : defaultDensity;
+class DensityMap {
+  constructor({defaultDensity = .1, densityZones = []}) {
+    this.defaultDensity = defaultDensity;
+    this.densityZones = densityZones;
+  }
+
+  getDensityAt({x, y}) {
+    const containingZone = this.densityZones && this.densityZones.find( (zone) => containsPoint(zone.polygon, x, y) );
+    return containingZone ? containingZone.density : this.defaultDensity;
+  }
 };
+
+export default DensityMap;
