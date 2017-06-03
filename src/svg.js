@@ -25,10 +25,28 @@ const _polyline = ({strokeAttributes, line}) => {
   return svg;
 };
 
+const _polygon = ({strokeAttributes, polygon}) => {
+  let svg = `<polygon ${strokeAttributes} points='`;
+  polygon.forEach((point,i) => {
+    svg += `${r(point[0])},${r(point[1])}`;
+    if (i < polygon.length) { svg += ' '; }
+  });
+  svg += `'/>`;
+  return svg;
+};
+
 const _polylines = ({strokeAttributes, lines}) => {
   let svg = '';
   lines.forEach((line) => {
     svg += _polyline({strokeAttributes, line});
+  });
+  return svg;
+};
+
+const _polygons = ({strokeAttributes, polygons}) => {
+  let svg = '';
+  polygons.forEach((polygon) => {
+    svg += _polygon({strokeAttributes, polygon});
   });
   return svg;
 };
@@ -63,6 +81,7 @@ export const createSvgFromDrawsets = (drawsets) => {
     const {stroke, strokeWidth} = drawset;
     const strokeAttributes = _getStrokeAttributesFromDrawStyle({stroke, strokeWidth});
     svg += _polylines({strokeAttributes, lines:drawset.lines});
+    svg += _polygons({strokeAttributes, polygons:drawset.polygons});
   });
   svg += _svgEnd();
 

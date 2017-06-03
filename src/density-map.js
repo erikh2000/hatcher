@@ -6,7 +6,7 @@ class DensityMap {
     this.densityZones = densityZones;
   }
 
-  getDensityAt({x, y}) {
+  getDensityAt(x, y) {
     const containingZone = this.densityZones && this.densityZones.find( (zone) => containsPoint(zone.polygon, x, y) );
     return containingZone ? containingZone.density : this.defaultDensity;
   }

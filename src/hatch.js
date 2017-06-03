@@ -1,18 +1,26 @@
-import { bbox, inside, lineString as turfLineString, point as turfPoint, polygon as turfPolygon } from '@turf/turf';
+import {
+  bbox,
+  inside,
+  lineString as turfLineString,
+  point as turfPoint,
+  polygon as turfPolygon
+} from '@turf/turf';
 import 'seedrandom'; // Overrides Math.random() and adds Math.seedrandom().
 import { cloneDeep } from 'lodash';
 import {
   addPointToLineStringEnd,
   addPointToLineStringStart,
   arePointsEqual,
+  differenceMulti,
+  getInBoundsSegments,
   getLineStringEndPoint,
   getLineStringStartPoint,
   pointX,
   pointY,
-  reverseLineString,
   toPolyK
 } from './turf-util.js';
-import { findClosestPointOnPoly, slicePolygon, toTurfPolygon } from './polyk-util.js';
+import { polygonSlice } from './turf-slice.js';
+import { findClosestPointOnPoly } from './polyk-util.js';
 
 import {
   degreesToRadians,
@@ -20,6 +28,8 @@ import {
 import DensityMap from './density-map';
 import Drawset from './drawset';
 import { createSvgFromDrawsets } from './svg';
+
+// Private
 
 const MAX_STROKE_WIDTH = 100;
 const SEED_LINE_MAX_SEGMENT_LENGTH = 1000;
@@ -109,71 +119,65 @@ const _extendSeedLineToFitRect = ({line, rectPoly}) => {
   return extendedLine;
 };
 
-const _splitRectWithLineString = ({rect, sliceLine, replaceLine}) => {
-  //Seed line has following assumptions:
-  // 1. Its endpoints intersect with perimeter of rect.
-  // 2. All of its other points are inside of the rect.
-  // 3. Its endpoints are on two separate segments of the rect.
-  //XXX need seed line calculation function to guarantee #2 and #3.
-  //With those assumptions, the seed line will always divide the rect into two polygons.
-
-  const polyKPolygons = slicePolygon(toPolyK(rect), toPolyK(sliceLine), toPolyK(replaceLine));
-
-  return polyKPolygons.map(polyKPolygon => toTurfPolygon(polyKPolygon));
-};
-
-function _isPointOnLine({x, y, endx, endy, px, py}) {
-    var f = function(somex) { return (endy - y) / (endx - x) * (somex - x) + y; };
-    return Math.abs(f(px) - py) < 1e-6 // tolerance, rounding errors
-        && px >= x && px <= endx;      // are they also on this segment?
-};
-
-const _sliceRect = (rectPolygon, sliceLineString) => {
-  const startPoint = getLineStringStartPoint(sliceLineString);
-  const endPoint = getLineStringEndPoint(sliceLineString);
-  const sliceCoords = [];
-  const rectCoords = rectPolygon.geometry.coordinates[0];
-
-  /*
-  algorithm something like...
-
-  for each segment of rectPolygon...
-    if startPoint is on segment...
-      push segment truncated to startPoint to sliceCoords
-      push sliceLineString to sliceCoords
-      exit loop
-    else
-      push segment to sliceCoords
-
-  for each segment of rectPolygon starting from startPoint segment and looping around...
-    if endPoint is on segment...
-      push segment truncated at beginning to endPoint to sliceCoords
-    else
-      push segment to sliceCoords
-  */
-};
-
 const _calcWorkAreasFromSeedLine = ({width, height, strokeWidth, seedLine, densityMap}) => {
-
   //Create "bleed" rectangle that extends OOB by a margin.
   const bleedRect = _getBoundingRectWithMarginPoly({width, height, margin:BLEED_MARGIN});
 
-  //Extend seed line ends to reach past perimeter of bleed rect to make the slice line.
-  const sliceLine = _extendSeedLineToFitRect({line:seedLine, rectPoly:bleedRect});
+  //Slice the bleed rectangle into two work areas using the seed line to indicate where to slice.
+  const workAreaFeatureCollection = polygonSlice(bleedRect, seedLine);
 
-  const workAreas = [];
-  workAreas.push(_sliceRect(bleedRect, sliceLine));
-  workAreas.push(_sliceRect(bleedRect, reverseLineString(sliceLine)));
-
-  return workAreas;
+  return workAreaFeatureCollection.features;
 };
 
-const _drawHatchLinesInWorkArea = ({workArea, drawset, densityMap}) => {
-
-  return {newWorkAreas:[], isWorkComplete:true}; // XXX
+const _drawWorkAreaPerimeter = ({workArea, boundingRect, drawset}) => {
+  const inboundSegments = getInBoundsSegments({polygon:workArea, boundingRect});
+  inboundSegments.forEach(segment => drawset.addLine(segment));
 };
 
-export const createHatchSvg = ({width, height, drawStyle}) => {
+const _calcSpacedCoord = ({point, angle, spacing}) => {
+  const a = degreesToRadians(angle);
+  const x = pointX(point) + (Math.cos(a) * spacing);
+  const y = pointY(point) + (Math.sin(a) * spacing);
+  return [x,y];
+};
+
+const _calcWhittlePolygonForSegment = ({segment, strokeWidth, densityMap}) => {
+  const startPoint = getLineStringStartPoint(segment);
+  const startPointAngle = segment.properties.a1;
+  const startDensity = densityMap.getDensityAt(pointX(startPoint), pointY(startPoint));
+  const startPointSpacing = strokeWidth / startDensity;
+
+  const endPoint = getLineStringEndPoint(segment);
+  const endPointAngle = segment.properties.a2;
+  const endDensity = densityMap.getDensityAt(pointX(endPoint), pointY(endPoint));
+  const endPointSpacing = strokeWidth / endDensity;
+
+  const whittleCoords = [startPoint.geometry.coordinates, endPoint.geometry.coordinates];
+  whittleCoords.push( _calcSpacedCoord({point:endPoint, angle:endPointAngle, spacing:endPointSpacing}) );
+  whittleCoords.push( _calcSpacedCoord({point:startPoint, angle:startPointAngle, spacing:startPointSpacing}) );
+  whittleCoords.push( startPoint.geometry.coordinates );
+
+  return turfPolygon([whittleCoords]);
+};
+
+const _whittleWorkArea = ({workArea, boundingRect, strokeWidth, densityMap}) => {
+  const whittlePolygons = [];
+  const inboundSegments = getInBoundsSegments({polygon:workArea, boundingRect, calcPointNormals:true});
+  inboundSegments.forEach(segment => {
+    whittlePolygons.push( _calcWhittlePolygonForSegment({segment, strokeWidth, densityMap}) );
+  });
+  return differenceMulti({sourcePolygon:workArea, subtractPolygons:whittlePolygons});
+};
+
+const _drawHatchLinesInWorkArea = ({workArea, boundingRect, drawset, densityMap}) => {
+  const newWorkAreas = _whittleWorkArea({workArea, boundingRect, strokeWidth: drawset.strokeWidth, densityMap});
+  newWorkAreas.forEach(newWorkArea => _drawWorkAreaPerimeter({workArea:newWorkArea, boundingRect, drawset}));
+  return newWorkAreas;
+};
+
+// Exports
+
+export const createHatchSvg = ({width, height, drawStyle, maxIterations = 40}) => {
   const { density, densityZones, hatchAngle, opacity, stroke, strokeWidth} = drawStyle;
   const drawset = new Drawset({width, height, stroke, strokeWidth, opacity});
   const debugDrawset = Drawset.createDebugDrawset({width, height});
@@ -183,22 +187,21 @@ export const createHatchSvg = ({width, height, drawStyle}) => {
     _drawBorder(drawset);
   }
 
-  const seedLine = _calcSeedLine({width, height, hatchAngle, randomSeed:1});
+  const seedLine = _calcSeedLine({width, height, hatchAngle, randomSeed:2});
   drawset.addLine(seedLine);
 
   let workAreas = _calcWorkAreasFromSeedLine({width, height, strokeWidth, seedLine, densityMap});
 
+  const boundingRect = _getBoundingRectPoly(width, height);
+  let iteration = 0;
   do {
     const nextWorkAreas = [];
     workAreas.forEach(workArea => {
-      const { newWorkAreas, isWorkComplete } = _drawHatchLinesInWorkArea({workArea, drawset, densityMap});
-      nextWorkAreas.push(...newWorkAreas);
-      if (!isWorkComplete) {
-        nextWorkAreas.push(workArea);
-      }
+      const workAreasAfterHatch = _drawHatchLinesInWorkArea({workArea, boundingRect, drawset, densityMap});
+      nextWorkAreas.push(...workAreasAfterHatch);
     });
     workAreas = nextWorkAreas;
-  } while ( workAreas.length );
+  } while ( workAreas.length && ++iteration !== maxIterations);
 
   return createSvgFromDrawsets([drawset, debugDrawset]);
 };
