@@ -29,13 +29,11 @@ const _getBoundingExclusiveRect = (polygon, linestring) => {
 };
 
 const _getNearestCoordsOnRect = (rect, coords) => {
-  //Preconditions:
-  //Passed-in rect begins with topleft corner coordinate and defines 4 clockwise segments. This is coupled to the
-  //bboxPolygon() implementation. If it becomes no longer true, just rewrite this function to accomodate.
-  const left = rect.geometry.coordinates[0][0][0];
-  const right = rect.geometry.coordinates[0][1][0];
-  const top = rect.geometry.coordinates[0][0][1];
-  const bottom = rect.geometry.coordinates[0][2][1];
+  const bb = bbox(rect);
+  const left = bb[0];
+  const right = bb[2];
+  const top = bb[1];
+  const bottom = bb[3];
 
   //Find which of the four rect segments is closest to the point.
   const distances = [coords[0]-left, right-coords[0], coords[1]-top, bottom-coords[1]];
@@ -68,7 +66,7 @@ const _extendSliceLineToFitRect = (line, rect) => {
     //1. all points of line are inside rect (inclusive of perimeter).
     //2. adding a segment to either endpoint to travel to nearest point on perimeter will not intersect with other
     //   segments of the line. Another way of saying the same thing--the endpoints would be included in a convex hull
-    //   of all points in the slice line. Basically, don't pass a tangled up maze of a slice line.
+    //   of all points in the slice line.
     const startCoords = _getLineStringStartCoords(line);
     const startNearestCoords = _getNearestCoordsOnRect(rect, startCoords);
     newLineCoords.unshift(startNearestCoords);
